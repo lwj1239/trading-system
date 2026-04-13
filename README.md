@@ -54,6 +54,21 @@ uv run python main.py
 
 首次运行若 `data/trades.csv` 或 `data/equity.csv` 不存在，会自动生成示例数据。
 
+## 测试
+
+项目使用 `pytest` 做核心回归测试，覆盖：
+
+- 资金重算（equity）
+- 净值与回撤计算（nav）
+- 统计指标计算（analytics）
+- 数据读取与日期校验（data）
+
+执行测试：
+
+```bash
+uv run pytest
+```
+
 ## 资金更新公式
 
 ```text
