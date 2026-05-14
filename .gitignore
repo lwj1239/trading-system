@@ -8,3 +8,6 @@ wheels/
 
 # Virtual environments
 .venv
+
+*交易流水*.csv
+data/

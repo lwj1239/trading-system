@@ -6,6 +6,9 @@ import numpy as np
 import pandas as pd
 
 
+EFFECTIVE_WIN_THRESHOLD = 0.01
+
+
 def _max_streak(mask: list[bool]) -> int:
     max_count = 0
     current = 0
@@ -18,11 +21,30 @@ def _max_streak(mask: list[bool]) -> int:
     return max_count
 
 
+def _current_streak(mask: list[bool]) -> int:
+    current = 0
+    for value in reversed(mask):
+        if bool(value):
+            current += 1
+        else:
+            break
+    return current
+
+
 def build_analytics(trades_rows: list[dict[str, object]], nav_rows: list[dict[str, object]]) -> dict[str, Any]:
     trades_df = pd.DataFrame(trades_rows)
     if "profit" not in trades_df.columns:
         trades_df["profit"] = 0.0
+    if "entry" not in trades_df.columns:
+        trades_df["entry"] = 0.0
+    if "size" not in trades_df.columns:
+        trades_df["size"] = 0.0
+
     profits = pd.to_numeric(trades_df["profit"], errors="coerce").fillna(0.0)
+    entries = pd.to_numeric(trades_df["entry"], errors="coerce").fillna(0.0).abs()
+    sizes = pd.to_numeric(trades_df["size"], errors="coerce").fillna(0.0).abs()
+    notionals = (entries * sizes).replace(0.0, np.nan)
+    trade_returns = (profits / notionals).replace([np.inf, -np.inf], np.nan).fillna(0.0)
 
     total_trades = int(len(profits))
     wins = profits[profits > 0]
@@ -37,8 +59,7 @@ def build_analytics(trades_rows: list[dict[str, object]], nav_rows: list[dict[st
     total_loss_abs = float(abs(losses.sum()))
     profit_factor = (total_profit / total_loss_abs) if total_loss_abs > 0 else float("inf")
 
-    loss_rate = 1 - win_rate
-    expectancy = win_rate * avg_win - loss_rate * avg_loss
+    expectancy = float(profits.mean()) if total_trades else 0.0
 
     nav_df = pd.DataFrame(nav_rows)
     if "nav" not in nav_df.columns:
@@ -56,10 +77,18 @@ def build_analytics(trades_rows: list[dict[str, object]], nav_rows: list[dict[st
 
     max_win_streak = _max_streak((profits > 0).tolist())
     max_loss_streak = _max_streak((profits < 0).tolist())
+    current_win_streak = _current_streak((profits > 0).tolist())
+    current_loss_streak = _current_streak((profits < 0).tolist())
+    effective_win_mask = (trade_returns >= EFFECTIVE_WIN_THRESHOLD).tolist()
+    max_effective_win_streak = _max_streak(effective_win_mask)
+    current_effective_win_streak = _current_streak(effective_win_mask)
 
     drawdowns = pd.to_numeric(nav_df["drawdown"], errors="coerce").fillna(0.0)
     max_drawdown = float(drawdowns.max()) if not drawdowns.empty else 0.0
     current_drawdown = float(drawdowns.iloc[-1]) if not drawdowns.empty else 0.0
+    prev_drawdown = float(drawdowns.iloc[-2]) if len(drawdowns) >= 2 else current_drawdown
+    latest_return = float(returns.iloc[-1]) if not returns.empty else 0.0
+    daily_loss = abs(latest_return) if latest_return < 0 else 0.0
 
     result = {
         "total_trades": total_trades,
@@ -74,8 +103,15 @@ def build_analytics(trades_rows: list[dict[str, object]], nav_rows: list[dict[st
         "current_drawdown": current_drawdown,
         "max_win_streak": int(max_win_streak),
         "max_loss_streak": int(max_loss_streak),
+        "current_win_streak": int(current_win_streak),
+        "current_loss_streak": int(current_loss_streak),
+        "max_effective_win_streak": int(max_effective_win_streak),
+        "current_effective_win_streak": int(current_effective_win_streak),
+        "effective_win_threshold": EFFECTIVE_WIN_THRESHOLD,
         "average_profit": float(profits.mean()) if total_trades else 0.0,
         "average_loss": float(losses.mean()) if len(losses) else 0.0,
         "equity_return": float(nav_values.iloc[-1] - 1.0) if not nav_values.empty else 0.0,
+        "prev_drawdown": prev_drawdown,
+        "daily_loss": daily_loss,
     }
     return result

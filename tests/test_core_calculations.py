@@ -6,6 +6,7 @@ import pytest
 from core.analytics import build_analytics
 from core.equity import recalculate_equity
 from core.nav import build_nav
+from core.risk import evaluate_risk
 
 
 def test_recalculate_equity_and_build_nav() -> None:
@@ -41,8 +42,13 @@ def test_recalculate_equity_and_build_nav() -> None:
 
     nav_rows = build_nav(recalculated)
     assert nav_rows[0]["nav"] == pytest.approx(1.0)
-    assert nav_rows[1]["nav"] == pytest.approx(1.0187)
-    assert nav_rows[2]["drawdown"] == pytest.approx((1.0187 - 1.003) / 1.0187)
+    nav_day1 = 10187.0 / 10000.0
+    assert nav_rows[1]["nav"] == pytest.approx(nav_day1)
+
+    shares_after_withdraw = 10000.0 + (-50.0 / nav_day1)
+    nav_day2 = 10030.0 / shares_after_withdraw
+    expected_drawdown = (nav_day1 - nav_day2) / nav_day1
+    assert nav_rows[2]["drawdown"] == pytest.approx(expected_drawdown)
 
 
 def test_build_nav_validation() -> None:
@@ -88,3 +94,100 @@ def test_build_analytics_metrics() -> None:
     returns = np.array([0.1, (1.05 - 1.1) / 1.1, (1.2 - 1.05) / 1.05])
     expected_sharpe = np.sqrt(252) * returns.mean() / returns.std(ddof=0)
     assert metrics["sharpe_ratio"] == pytest.approx(expected_sharpe)
+
+
+def test_effective_win_streak_uses_return_threshold_strict_mode() -> None:
+    trades_rows = [
+        {"entry": 100, "size": 1, "profit": 0.3},
+        {"entry": 100, "size": 1, "profit": 1.2},
+        {"entry": 100, "size": 1, "profit": 0.8},
+        {"entry": 100, "size": 1, "profit": 1.5},
+        {"entry": 100, "size": 1, "profit": 1.1},
+    ]
+    nav_rows = [{"nav": 1.0, "drawdown": 0.0}]
+
+    metrics = build_analytics(trades_rows, nav_rows)
+
+    assert metrics["effective_win_threshold"] == pytest.approx(0.01)
+    assert metrics["current_effective_win_streak"] == 2
+    assert metrics["max_effective_win_streak"] == 2
+
+
+def test_risk_level_uses_highest_trigger() -> None:
+    metrics = {
+        "current_loss_streak": 2,
+        "current_drawdown": 0.06,
+        "current_win_streak": 0,
+    }
+    risk = evaluate_risk(metrics, {"level": 0, "last_drawdown": 0.06})
+
+    assert risk["level"] == 2
+    assert risk["current_risk"] == pytest.approx(0.01)
+    assert risk["status"] == "active"
+
+
+def test_risk_recovery_downgrades_one_or_more_levels() -> None:
+    metrics = {
+        "current_loss_streak": 0,
+        "current_drawdown": 0.04,
+        "current_effective_win_streak": 2,
+        "effective_win_threshold": 0.01,
+    }
+    risk = evaluate_risk(metrics, {"level": 3, "last_drawdown": 0.10})
+
+    assert risk["level"] == 1
+    assert risk["current_risk"] == pytest.approx(0.015)
+
+
+def test_risk_recovery_new_high_resets_to_level_zero() -> None:
+    metrics = {
+        "current_loss_streak": 0,
+        "current_drawdown": 0.0,
+        "current_effective_win_streak": 0,
+        "effective_win_threshold": 0.01,
+    }
+    risk = evaluate_risk(metrics, {"level": 3, "last_drawdown": 0.06})
+
+    assert risk["level"] == 0
+    assert risk["current_risk"] == pytest.approx(0.02)
+
+
+def test_risk_level_four_stops_trading() -> None:
+    metrics = {
+        "current_loss_streak": 7,
+        "current_drawdown": 0.02,
+        "current_effective_win_streak": 0,
+        "effective_win_threshold": 0.01,
+    }
+    risk = evaluate_risk(metrics, {"level": 0, "last_drawdown": 0.02}, as_of_date="2026-04-21")
+
+    assert risk["level"] == 4
+    assert risk["current_risk"] == pytest.approx(0.0)
+    assert risk["status"] == "stopped"
+
+
+def test_level4_stops_for_two_days_then_back_to_level2() -> None:
+    trigger_metrics = {
+        "current_loss_streak": 7,
+        "current_drawdown": 0.02,
+        "current_effective_win_streak": 0,
+        "effective_win_threshold": 0.01,
+    }
+    day0 = evaluate_risk(trigger_metrics, {"level": 0, "last_drawdown": 0.02}, as_of_date="2026-04-21")
+    assert day0["level"] == 4
+    assert day0["status"] == "stopped"
+
+    mild_metrics = {
+        "current_loss_streak": 0,
+        "current_drawdown": 0.01,
+        "current_effective_win_streak": 0,
+        "effective_win_threshold": 0.01,
+    }
+    day1 = evaluate_risk(mild_metrics, day0["state"], as_of_date="2026-04-22")
+    assert day1["level"] == 4
+    assert day1["status"] == "stopped"
+
+    day2 = evaluate_risk(mild_metrics, day1["state"], as_of_date="2026-04-23")
+    assert day2["level"] == 2
+    assert day2["current_risk"] == pytest.approx(0.01)
+    assert day2["status"] == "active"
