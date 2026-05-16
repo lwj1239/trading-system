@@ -34,23 +34,19 @@ system/
 
 1. 安装依赖（核心计算基于 pandas/numpy，统计扩展支持 scipy）
 
-```bash
-uv sync
-```
-
-若你是新环境，推荐一并安装常用分析库：
-
-```bash
-uv add pandas numpy scipy matplotlib
-```
-
-没有 uv 也可以运行：
+推荐使用 requirements.txt 安装：
 
 ```bash
 python -m venv .venv
 .venv\Scripts\activate
 python -m pip install -U pip
-pip install pandas numpy scipy matplotlib
+pip install -r requirements.txt
+```
+
+如果你用 uv 管理依赖，可以导出 requirements.txt：
+
+```bash
+uv export -o requirements.txt
 ```
 
 2. 执行主程序
