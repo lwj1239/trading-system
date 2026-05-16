@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import csv
+from datetime import datetime
 from pathlib import Path
 
 import pandas as pd
+
+from core.precision import format_8, q8
 
 TRADE_COLUMNS = [
     "date",
@@ -28,6 +31,17 @@ EQUITY_COLUMNS = [
     "withdraw",
     "note",
 ]
+
+NAV_COLUMNS = [
+    "date",
+    "equity",
+    "nav",
+    "peak",
+    "drawdown",
+]
+
+def _coerce_decimal(value: object) -> Decimal:
+    return q8(value)
 
 
 def ensure_demo_data(data_dir: Path) -> tuple[Path, Path]:
@@ -65,31 +79,62 @@ def ensure_demo_data(data_dir: Path) -> tuple[Path, Path]:
 
 
 def load_trades(path: Path) -> list[dict[str, object]]:
-    df = _read_dataframe(path, TRADE_COLUMNS)
-    df["date"] = pd.to_datetime(df["date"], errors="coerce", format="%Y-%m-%d")
-    if df["date"].isna().any():
-        raise ValueError(f"{path.name} contains invalid dates")
+    with path.open("r", newline="", encoding="utf-8") as file:
+        reader = csv.DictReader(file)
+        if reader.fieldnames is None:
+            raise ValueError(f"{path.name} missing required columns: {TRADE_COLUMNS}")
+        missing = [col for col in TRADE_COLUMNS if col not in reader.fieldnames]
+        if missing:
+            raise ValueError(f"{path.name} missing required columns: {missing}")
 
-    numeric_cols = ["entry", "exit", "size", "profit", "risk"]
-    for col in numeric_cols:
-        df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0.0)
+        rows: list[dict[str, object]] = []
+        for raw in reader:
+            date_text = (raw.get("date") or "").strip()
+            try:
+                parsed_date = datetime.strptime(date_text, "%Y-%m-%d")
+            except ValueError as exc:
+                raise ValueError(f"{path.name} contains invalid dates") from exc
 
-    df = df.sort_values("date").reset_index(drop=True)
-    return df.to_dict(orient="records")
+            row: dict[str, object] = {
+                "date": parsed_date,
+                "symbol": raw.get("symbol", ""),
+                "side": raw.get("side", ""),
+                "setup": raw.get("setup", ""),
+                "notes": raw.get("notes", ""),
+            }
+            for col in ["entry", "exit", "size", "profit", "risk"]:
+                row[col] = _coerce_decimal(raw.get(col, ""))
+            rows.append(row)
+
+    rows.sort(key=lambda item: item["date"])
+    return rows
 
 
 def load_equity(path: Path) -> list[dict[str, object]]:
-    df = _read_dataframe(path, EQUITY_COLUMNS)
-    df["date"] = pd.to_datetime(df["date"], errors="coerce", format="%Y-%m-%d")
-    if df["date"].isna().any():
-        raise ValueError(f"{path.name} contains invalid dates")
+    with path.open("r", newline="", encoding="utf-8") as file:
+        reader = csv.DictReader(file)
+        if reader.fieldnames is None:
+            raise ValueError(f"{path.name} missing required columns: {EQUITY_COLUMNS}")
+        missing = [col for col in EQUITY_COLUMNS if col not in reader.fieldnames]
+        if missing:
+            raise ValueError(f"{path.name} missing required columns: {missing}")
 
-    numeric_cols = ["equity", "profit", "funding_fee", "trading_fee", "deposit", "withdraw"]
-    for col in numeric_cols:
-        df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0.0)
+        rows: list[dict[str, object]] = []
+        for raw in reader:
+            date_text = (raw.get("date") or "").strip()
+            try:
+                parsed_date = datetime.strptime(date_text, "%Y-%m-%d")
+            except ValueError as exc:
+                raise ValueError(f"{path.name} contains invalid dates") from exc
 
-    df = df.sort_values("date").reset_index(drop=True)
-    return df.to_dict(orient="records")
+            row: dict[str, object] = {"date": parsed_date}
+            for col in ["equity", "profit", "funding_fee", "trading_fee", "deposit", "withdraw"]:
+                row[col] = _coerce_decimal(raw.get(col, ""))
+            row["note"] = raw.get("note", "")
+            rows.append(row)
+
+    rows.sort(key=lambda item: item["date"])
+    return rows
 
 
 def save_rows(path: Path, columns: list[str], rows: list[dict[str, object]]) -> None:
@@ -106,6 +151,17 @@ def save_rows(path: Path, columns: list[str], rows: list[dict[str, object]]) -> 
     if "date" in df.columns:
         date_series = pd.to_datetime(df["date"], errors="coerce")
         df["date"] = date_series.dt.strftime("%Y-%m-%d").fillna(df["date"].astype(str))
+
+    if columns == EQUITY_COLUMNS:
+        numeric_cols = ["equity", "profit", "funding_fee", "trading_fee", "deposit", "withdraw"]
+        for col in numeric_cols:
+            if col in df.columns:
+                df[col] = df[col].map(format_8)
+    elif columns == NAV_COLUMNS:
+        numeric_cols = ["equity", "nav", "peak", "drawdown"]
+        for col in numeric_cols:
+            if col in df.columns:
+                df[col] = df[col].map(format_8)
 
     df.to_csv(path, index=False, encoding="utf-8")
 

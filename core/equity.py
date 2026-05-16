@@ -1,19 +1,27 @@
 from __future__ import annotations
 
-import pandas as pd
+from decimal import Decimal
+
+from core.precision import q8
+
 
 def recalculate_equity(equity_rows: list[dict[str, object]]) -> list[dict[str, object]]:
     """Rebuild equity by applying all cashflow components row by row."""
     if not equity_rows:
         return []
 
-    df = pd.DataFrame(equity_rows).copy()
-    for col in ["profit", "funding_fee", "trading_fee", "deposit", "withdraw"]:
-        if col not in df.columns:
-            df[col] = 0.0
-        df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0.0)
+    rows = sorted(equity_rows, key=lambda row: row.get("date"))
+    equity = Decimal("0")
 
-    delta = df["profit"] + df["funding_fee"] - df["trading_fee"] + df["deposit"] - df["withdraw"]
-    df["equity"] = delta.cumsum()
+    for row in rows:
+        profit = q8(row.get("profit", 0))
+        funding_fee = q8(row.get("funding_fee", 0))
+        trading_fee = q8(row.get("trading_fee", 0))
+        deposit = q8(row.get("deposit", 0))
+        withdraw = q8(row.get("withdraw", 0))
 
-    return df.to_dict(orient="records")
+        delta = q8(profit + funding_fee - trading_fee + deposit - withdraw)
+        equity = q8(equity + delta)
+        row["equity"] = equity
+
+    return rows

@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+from decimal import Decimal
+
 import numpy as np
 import pytest
 
 from core.analytics import build_analytics
 from core.equity import recalculate_equity
 from core.nav import build_nav
+from core.precision import q8
 from core.risk import evaluate_risk
 
 
@@ -38,17 +41,21 @@ def test_recalculate_equity_and_build_nav() -> None:
     ]
 
     recalculated = recalculate_equity(equity_rows)
-    assert [row["equity"] for row in recalculated] == pytest.approx([10000.0, 10187.0, 10030.0])
+    assert [row["equity"] for row in recalculated] == [
+        Decimal("10000.00000000"),
+        Decimal("10187.00000000"),
+        Decimal("10030.00000000"),
+    ]
 
     nav_rows = build_nav(recalculated)
-    assert nav_rows[0]["nav"] == pytest.approx(1.0)
-    nav_day1 = 10187.0 / 10000.0
-    assert nav_rows[1]["nav"] == pytest.approx(nav_day1)
+    assert nav_rows[0]["nav"] == Decimal("1.00000000")
+    nav_day1 = q8(Decimal("10187") / Decimal("10000"))
+    assert nav_rows[1]["nav"] == nav_day1
 
-    shares_after_withdraw = 10000.0 + (-50.0 / nav_day1)
-    nav_day2 = 10030.0 / shares_after_withdraw
-    expected_drawdown = (nav_day1 - nav_day2) / nav_day1
-    assert nav_rows[2]["drawdown"] == pytest.approx(expected_drawdown)
+    shares_after_withdraw = q8(Decimal("10000") + (Decimal("-50") / nav_day1))
+    nav_day2 = q8(Decimal("10030") / shares_after_withdraw)
+    expected_drawdown = q8((nav_day1 - nav_day2) / nav_day1)
+    assert nav_rows[2]["drawdown"] == expected_drawdown
 
 
 def test_build_nav_validation() -> None:
@@ -79,21 +86,21 @@ def test_build_analytics_metrics() -> None:
     metrics = build_analytics(trades_rows, nav_rows)
 
     assert metrics["total_trades"] == 4
-    assert metrics["win_rate"] == pytest.approx(0.5)
-    assert metrics["avg_win"] == pytest.approx(150.0)
-    assert metrics["avg_loss"] == pytest.approx(37.5)
-    assert metrics["payoff_ratio"] == pytest.approx(4.0)
-    assert metrics["profit_factor"] == pytest.approx(4.0)
-    assert metrics["expectancy"] == pytest.approx(56.25)
+    assert float(metrics["win_rate"]) == pytest.approx(0.5)
+    assert float(metrics["avg_win"]) == pytest.approx(150.0)
+    assert float(metrics["avg_loss"]) == pytest.approx(37.5)
+    assert float(metrics["payoff_ratio"]) == pytest.approx(4.0)
+    assert float(metrics["profit_factor"]) == pytest.approx(4.0)
+    assert float(metrics["expectancy"]) == pytest.approx(56.25)
     assert metrics["max_win_streak"] == 1
     assert metrics["max_loss_streak"] == 1
-    assert metrics["max_drawdown"] == pytest.approx((1.1 - 1.05) / 1.1)
-    assert metrics["current_drawdown"] == pytest.approx(0.0)
-    assert metrics["equity_return"] == pytest.approx(0.2)
+    assert float(metrics["max_drawdown"]) == pytest.approx((1.1 - 1.05) / 1.1)
+    assert float(metrics["current_drawdown"]) == pytest.approx(0.0)
+    assert float(metrics["equity_return"]) == pytest.approx(0.2)
 
     returns = np.array([0.1, (1.05 - 1.1) / 1.1, (1.2 - 1.05) / 1.05])
     expected_sharpe = np.sqrt(252) * returns.mean() / returns.std(ddof=0)
-    assert metrics["sharpe_ratio"] == pytest.approx(expected_sharpe)
+    assert float(metrics["sharpe_ratio"]) == pytest.approx(expected_sharpe)
 
 
 def test_effective_win_streak_uses_return_threshold_strict_mode() -> None:
@@ -108,7 +115,7 @@ def test_effective_win_streak_uses_return_threshold_strict_mode() -> None:
 
     metrics = build_analytics(trades_rows, nav_rows)
 
-    assert metrics["effective_win_threshold"] == pytest.approx(0.01)
+    assert float(metrics["effective_win_threshold"]) == pytest.approx(0.01)
     assert metrics["current_effective_win_streak"] == 2
     assert metrics["max_effective_win_streak"] == 2
 
@@ -122,7 +129,7 @@ def test_risk_level_uses_highest_trigger() -> None:
     risk = evaluate_risk(metrics, {"level": 0, "last_drawdown": 0.06})
 
     assert risk["level"] == 2
-    assert risk["current_risk"] == pytest.approx(0.01)
+    assert float(risk["current_risk"]) == pytest.approx(0.01)
     assert risk["status"] == "active"
 
 
@@ -136,7 +143,7 @@ def test_risk_recovery_downgrades_one_or_more_levels() -> None:
     risk = evaluate_risk(metrics, {"level": 3, "last_drawdown": 0.10})
 
     assert risk["level"] == 1
-    assert risk["current_risk"] == pytest.approx(0.015)
+    assert float(risk["current_risk"]) == pytest.approx(0.015)
 
 
 def test_risk_recovery_new_high_resets_to_level_zero() -> None:
@@ -149,7 +156,7 @@ def test_risk_recovery_new_high_resets_to_level_zero() -> None:
     risk = evaluate_risk(metrics, {"level": 3, "last_drawdown": 0.06})
 
     assert risk["level"] == 0
-    assert risk["current_risk"] == pytest.approx(0.02)
+    assert float(risk["current_risk"]) == pytest.approx(0.02)
 
 
 def test_risk_level_four_stops_trading() -> None:
@@ -162,7 +169,7 @@ def test_risk_level_four_stops_trading() -> None:
     risk = evaluate_risk(metrics, {"level": 0, "last_drawdown": 0.02}, as_of_date="2026-04-21")
 
     assert risk["level"] == 4
-    assert risk["current_risk"] == pytest.approx(0.0)
+    assert float(risk["current_risk"]) == pytest.approx(0.0)
     assert risk["status"] == "stopped"
 
 
@@ -189,5 +196,5 @@ def test_level4_stops_for_two_days_then_back_to_level2() -> None:
 
     day2 = evaluate_risk(mild_metrics, day1["state"], as_of_date="2026-04-23")
     assert day2["level"] == 2
-    assert day2["current_risk"] == pytest.approx(0.01)
+    assert float(day2["current_risk"]) == pytest.approx(0.01)
     assert day2["status"] == "active"

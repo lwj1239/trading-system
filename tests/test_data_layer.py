@@ -4,6 +4,8 @@ import csv
 from datetime import datetime
 from pathlib import Path
 
+from decimal import Decimal
+
 import pytest
 
 from core.data import EQUITY_COLUMNS, TRADE_COLUMNS, load_equity, load_trades, save_rows
@@ -31,8 +33,8 @@ def test_load_trades_parses_sorts_and_coerces_numeric(tmp_path: Path) -> None:
 
     assert rows[0]["date"] < rows[1]["date"]
     assert isinstance(rows[0]["date"], datetime)
-    assert rows[0]["entry"] == pytest.approx(0.0)
-    assert rows[1]["entry"] == pytest.approx(42000.0)
+    assert rows[0]["entry"] == Decimal("0")
+    assert rows[1]["entry"] == Decimal("42000.00000000")
 
 
 def test_load_trades_invalid_date_raises(tmp_path: Path) -> None:
@@ -56,8 +58,8 @@ def test_load_equity_coerces_numeric(tmp_path: Path) -> None:
     )
 
     rows = load_equity(equity_path)
-    assert rows[0]["equity"] == pytest.approx(0.0)
-    assert rows[0]["profit"] == pytest.approx(200.0)
+    assert rows[0]["equity"] == Decimal("0")
+    assert rows[0]["profit"] == Decimal("200.00000000")
 
 
 def test_save_rows_formats_date_and_keeps_columns(tmp_path: Path) -> None:
@@ -83,4 +85,4 @@ def test_save_rows_formats_date_and_keeps_columns(tmp_path: Path) -> None:
 
     assert reader.fieldnames == EQUITY_COLUMNS
     assert parsed[0]["date"] == "2024-01-01"
-    assert parsed[0]["equity"] == "10000"
+    assert parsed[0]["equity"] == "10000.00000000"

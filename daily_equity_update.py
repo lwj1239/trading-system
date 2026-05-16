@@ -3,7 +3,12 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from core.binance_sync import find_latest_binance_csv, parse_target_date, update_yesterday_equity
+from core.binance_sync import (
+    find_latest_binance_csv,
+    parse_target_date,
+    rebuild_equity_from_date,
+    update_yesterday_equity,
+)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -13,6 +18,12 @@ def build_parser() -> argparse.ArgumentParser:
         type=str,
         default=None,
         help="目标日期，格式 YYYY-MM-DD，默认昨天",
+    )
+    parser.add_argument(
+        "--rebuild-from",
+        type=str,
+        default=None,
+        help="从指定日期开始重算 equity（包含当天），格式 YYYY-MM-DD",
     )
     parser.add_argument(
         "--binance-csv",
@@ -38,25 +49,46 @@ def main() -> None:
     equity_csv_path = (project_dir / args.equity_csv).resolve()
     binance_csv_path = Path(args.binance_csv).resolve() if args.binance_csv else find_latest_binance_csv(project_dir)
 
-    summary = update_yesterday_equity(
-        equity_csv_path=equity_csv_path,
-        binance_csv_path=binance_csv_path,
-        target_date=target_date,
-    )
+    if args.rebuild_from:
+        rebuild_from = parse_target_date(args.rebuild_from)
+        summary = rebuild_equity_from_date(
+            equity_csv_path=equity_csv_path,
+            binance_csv_path=binance_csv_path,
+            start_date=rebuild_from,
+            end_date=target_date,
+        )
 
-    print("=" * 48)
-    print("昨日 Equity 自动更新完成")
-    print("=" * 48)
-    print(f"目标日期: {summary['date']}")
-    print(f"基准日期: {summary['base_date']}")
-    print(f"基准权益: {summary['base_equity']}")
-    print(f"profit: {summary['profit']}")
-    print(f"funding_fee: {summary['funding_fee']}")
-    print(f"trading_fee: {summary['trading_fee']}")
-    print(f"deposit: {summary['deposit']}")
-    print(f"withdraw: {summary['withdraw']}")
-    print(f"更新后 equity: {summary['equity']}")
-    print(f"已写入: {equity_csv_path}")
+        print("=" * 48)
+        print("区间 Equity 重新计算完成")
+        print("=" * 48)
+        print(f"开始日期: {summary['start_date']}")
+        print(f"结束日期: {summary['end_date']}")
+        print(f"基准日期: {summary['base_date']}")
+        print(f"基准权益: {summary['base_equity']}")
+        print(f"更新行数: {summary['rows_updated']}")
+        print(f"最后日期: {summary['last_date']}")
+        print(f"最后 equity: {summary['last_equity']}")
+        print(f"已写入: {equity_csv_path}")
+    else:
+        summary = update_yesterday_equity(
+            equity_csv_path=equity_csv_path,
+            binance_csv_path=binance_csv_path,
+            target_date=target_date,
+        )
+
+        print("=" * 48)
+        print("昨日 Equity 自动更新完成")
+        print("=" * 48)
+        print(f"目标日期: {summary['date']}")
+        print(f"基准日期: {summary['base_date']}")
+        print(f"基准权益: {summary['base_equity']}")
+        print(f"profit: {summary['profit']}")
+        print(f"funding_fee: {summary['funding_fee']}")
+        print(f"trading_fee: {summary['trading_fee']}")
+        print(f"deposit: {summary['deposit']}")
+        print(f"withdraw: {summary['withdraw']}")
+        print(f"更新后 equity: {summary['equity']}")
+        print(f"已写入: {equity_csv_path}")
 
 
 if __name__ == "__main__":

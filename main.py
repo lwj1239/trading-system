@@ -1,20 +1,28 @@
 from __future__ import annotations
 
 import math
+from decimal import Decimal
 from pathlib import Path
 
 from core.analytics import build_analytics
-from core.data import EQUITY_COLUMNS, ensure_demo_data, load_equity, load_trades, save_rows
+from core.data import EQUITY_COLUMNS, NAV_COLUMNS, ensure_demo_data, load_equity, load_trades, save_rows
 from core.equity import recalculate_equity
 from core.nav import build_nav
 from core.risk import evaluate_risk, load_risk_state, save_risk_state
 
 
-def _format_percent(value: float) -> str:
+def _format_percent(value: float | Decimal) -> str:
+    if isinstance(value, Decimal):
+        percent = (value * Decimal("100")).quantize(Decimal("0.01"))
+        return f"{percent}%"
     return f"{value * 100:.2f}%"
 
 
-def _format_ratio(value: float) -> str:
+def _format_ratio(value: float | Decimal) -> str:
+    if isinstance(value, Decimal):
+        if value.is_infinite():
+            return "INF"
+        return f"{value:.3f}"
     if math.isinf(value):
         return "INF"
     return f"{value:.3f}"
@@ -49,7 +57,7 @@ def main() -> None:
     risk = evaluate_risk(metrics, risk_state, as_of_date=as_of_date)
 
     save_rows(equity_path, EQUITY_COLUMNS, equity_rows)
-    save_rows(data_dir / "nav.csv", ["date", "equity", "nav", "peak", "drawdown"], nav_rows)
+    save_rows(data_dir / "nav.csv", NAV_COLUMNS, nav_rows)
     save_risk_state(risk_state_path, risk["state"])
 
     print("=" * 60)

@@ -44,10 +44,25 @@ uv sync
 uv add pandas numpy scipy matplotlib
 ```
 
+没有 uv 也可以运行：
+
+```bash
+python -m venv .venv
+.venv\Scripts\activate
+python -m pip install -U pip
+pip install pandas numpy scipy matplotlib
+```
+
 2. 执行主程序
 
 ```bash
 uv run python main.py
+```
+
+没有 uv 的等价方式：
+
+```bash
+python main.py
 ```
 
 ## 自动更新昨日 Equity（Binance 流水）
@@ -66,10 +81,34 @@ uv run python main.py
 uv run python daily_equity_update.py
 ```
 
+没有 uv 的等价方式：
+
+```bash
+python daily_equity_update.py
+```
+
 指定日期回填（示例）：
 
 ```bash
 uv run python daily_equity_update.py --date 2026-04-19
+```
+
+没有 uv 的等价方式：
+
+```bash
+python daily_equity_update.py --date 2026-04-19
+```
+
+从指定日期开始重算（示例，重算 2026-05-01 至 2026-05-16）：
+
+```bash
+uv run python daily_equity_update.py --date 2026-05-16 --rebuild-from 2026-05-01
+```
+
+没有 uv 的等价方式：
+
+```bash
+python daily_equity_update.py --date 2026-05-16 --rebuild-from 2026-05-01
 ```
 
 指定流水文件（示例）：
@@ -78,24 +117,11 @@ uv run python daily_equity_update.py --date 2026-04-19
 uv run python daily_equity_update.py --binance-csv "Binance-合约交易流水-202604201005(UTC+8).csv"
 ```
 
-### Windows 每天 08:00 自动运行
+没有 uv 的等价方式：
 
-PowerShell 执行一次即可创建计划任务：
-
-```powershell
-$project = "C:\Users\32890\Desktop\python-code\finance\system"
-$taskName = "FinanceDailyEquityUpdate"
-$taskCmd = "cmd /c cd /d `"$project`" && uv run python daily_equity_update.py"
-schtasks /Create /TN $taskName /TR $taskCmd /SC DAILY /ST 08:00 /F
+```bash
+python daily_equity_update.py --binance-csv "Binance-合约交易流水-202604201005(UTC+8).csv"
 ```
-
-删除计划任务：
-
-```powershell
-schtasks /Delete /TN "FinanceDailyEquityUpdate" /F
-```
-
-首次运行若 `data/trades.csv` 或 `data/equity.csv` 不存在，会自动生成示例数据。
 
 ## 测试
 
@@ -110,6 +136,12 @@ schtasks /Delete /TN "FinanceDailyEquityUpdate" /F
 
 ```bash
 uv run pytest
+```
+
+没有 uv 的等价方式：
+
+```bash
+pytest
 ```
 
 ## 资金更新公式

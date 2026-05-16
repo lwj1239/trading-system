@@ -1,12 +1,12 @@
 from __future__ import annotations
 
+from decimal import Decimal
 from typing import Any
 
-import numpy as np
-import pandas as pd
+from core.precision import q8
 
 
-EFFECTIVE_WIN_THRESHOLD = 0.01
+EFFECTIVE_WIN_THRESHOLD = Decimal("0.01")
 
 
 def _max_streak(mask: list[bool]) -> int:
@@ -32,63 +32,78 @@ def _current_streak(mask: list[bool]) -> int:
 
 
 def build_analytics(trades_rows: list[dict[str, object]], nav_rows: list[dict[str, object]]) -> dict[str, Any]:
-    trades_df = pd.DataFrame(trades_rows)
-    if "profit" not in trades_df.columns:
-        trades_df["profit"] = 0.0
-    if "entry" not in trades_df.columns:
-        trades_df["entry"] = 0.0
-    if "size" not in trades_df.columns:
-        trades_df["size"] = 0.0
+    profits: list[Decimal] = []
+    trade_returns: list[Decimal] = []
 
-    profits = pd.to_numeric(trades_df["profit"], errors="coerce").fillna(0.0)
-    entries = pd.to_numeric(trades_df["entry"], errors="coerce").fillna(0.0).abs()
-    sizes = pd.to_numeric(trades_df["size"], errors="coerce").fillna(0.0).abs()
-    notionals = (entries * sizes).replace(0.0, np.nan)
-    trade_returns = (profits / notionals).replace([np.inf, -np.inf], np.nan).fillna(0.0)
+    for row in trades_rows:
+        profit = q8(row.get("profit", 0))
+        entry = q8(row.get("entry", 0))
+        size = q8(row.get("size", 0))
+
+        notional = q8(abs(entry) * abs(size))
+        if notional == 0:
+            trade_return = Decimal("0")
+        else:
+            trade_return = q8(profit / notional)
+
+        profits.append(profit)
+        trade_returns.append(trade_return)
 
     total_trades = int(len(profits))
-    wins = profits[profits > 0]
-    losses = profits[profits < 0]
+    wins = [value for value in profits if value > 0]
+    losses = [value for value in profits if value < 0]
 
-    win_rate = float(len(wins) / total_trades) if total_trades else 0.0
-    avg_win = float(wins.mean()) if len(wins) else 0.0
-    avg_loss = float(abs(losses.mean())) if len(losses) else 0.0
-    payoff_ratio = (avg_win / avg_loss) if avg_loss > 0 else float("inf")
+    def _mean(values: list[Decimal]) -> Decimal:
+        if not values:
+            return Decimal("0")
+        return q8(sum(values, Decimal("0")) / Decimal(len(values)))
 
-    total_profit = float(wins.sum())
-    total_loss_abs = float(abs(losses.sum()))
-    profit_factor = (total_profit / total_loss_abs) if total_loss_abs > 0 else float("inf")
+    def _std(values: list[Decimal]) -> Decimal:
+        if not values:
+            return Decimal("0")
+        mean = sum(values, Decimal("0")) / Decimal(len(values))
+        variance = sum((value - mean) ** 2 for value in values) / Decimal(len(values))
+        return q8(variance.sqrt()) if variance > 0 else Decimal("0")
 
-    expectancy = float(profits.mean()) if total_trades else 0.0
+    win_rate = q8(Decimal(len(wins)) / Decimal(total_trades)) if total_trades else Decimal("0")
+    avg_win = _mean(wins)
+    avg_loss = q8(abs(_mean(losses)))
+    payoff_ratio = q8(avg_win / avg_loss) if avg_loss > 0 else Decimal("Infinity")
 
-    nav_df = pd.DataFrame(nav_rows)
-    if "nav" not in nav_df.columns:
-        nav_df["nav"] = 0.0
-    if "drawdown" not in nav_df.columns:
-        nav_df["drawdown"] = 0.0
+    total_profit = q8(sum(wins, Decimal("0")))
+    total_loss_abs = q8(abs(sum(losses, Decimal("0"))))
+    profit_factor = q8(total_profit / total_loss_abs) if total_loss_abs > 0 else Decimal("Infinity")
 
-    nav_values = pd.to_numeric(nav_df["nav"], errors="coerce").fillna(0.0)
-    returns = nav_values.pct_change().replace([np.inf, -np.inf], np.nan).dropna()
-    sharpe_ratio = 0.0
-    if not returns.empty:
-        std = float(returns.std(ddof=0))
+    expectancy = _mean(profits) if total_trades else Decimal("0")
+
+    nav_values = [q8(row.get("nav", 0)) for row in nav_rows]
+    returns: list[Decimal] = []
+    for index in range(1, len(nav_values)):
+        prev = nav_values[index - 1]
+        if prev > 0:
+            returns.append(q8((nav_values[index] / prev) - Decimal("1")))
+
+    sharpe_ratio = Decimal("0")
+    if returns:
+        std = _std(returns)
         if std > 0:
-            sharpe_ratio = float((np.sqrt(252) * returns.mean()) / std)
+            mean_return = _mean(returns)
+            sharpe_ratio = q8((Decimal("252").sqrt() * mean_return) / std)
 
-    max_win_streak = _max_streak((profits > 0).tolist())
-    max_loss_streak = _max_streak((profits < 0).tolist())
-    current_win_streak = _current_streak((profits > 0).tolist())
-    current_loss_streak = _current_streak((profits < 0).tolist())
-    effective_win_mask = (trade_returns >= EFFECTIVE_WIN_THRESHOLD).tolist()
+    max_win_streak = _max_streak([value > 0 for value in profits])
+    max_loss_streak = _max_streak([value < 0 for value in profits])
+    current_win_streak = _current_streak([value > 0 for value in profits])
+    current_loss_streak = _current_streak([value < 0 for value in profits])
+    effective_win_mask = [value >= EFFECTIVE_WIN_THRESHOLD for value in trade_returns]
     max_effective_win_streak = _max_streak(effective_win_mask)
     current_effective_win_streak = _current_streak(effective_win_mask)
 
-    drawdowns = pd.to_numeric(nav_df["drawdown"], errors="coerce").fillna(0.0)
-    max_drawdown = float(drawdowns.max()) if not drawdowns.empty else 0.0
-    current_drawdown = float(drawdowns.iloc[-1]) if not drawdowns.empty else 0.0
-    prev_drawdown = float(drawdowns.iloc[-2]) if len(drawdowns) >= 2 else current_drawdown
-    latest_return = float(returns.iloc[-1]) if not returns.empty else 0.0
-    daily_loss = abs(latest_return) if latest_return < 0 else 0.0
+    drawdowns = [q8(row.get("drawdown", 0)) for row in nav_rows]
+    max_drawdown = max(drawdowns) if drawdowns else Decimal("0")
+    current_drawdown = drawdowns[-1] if drawdowns else Decimal("0")
+    prev_drawdown = drawdowns[-2] if len(drawdowns) >= 2 else current_drawdown
+    latest_return = returns[-1] if returns else Decimal("0")
+    daily_loss = abs(latest_return) if latest_return < 0 else Decimal("0")
 
     result = {
         "total_trades": total_trades,
@@ -97,7 +112,7 @@ def build_analytics(trades_rows: list[dict[str, object]], nav_rows: list[dict[st
         "avg_loss": avg_loss,
         "payoff_ratio": payoff_ratio,
         "profit_factor": profit_factor,
-        "expectancy": float(expectancy),
+        "expectancy": expectancy,
         "sharpe_ratio": sharpe_ratio,
         "max_drawdown": max_drawdown,
         "current_drawdown": current_drawdown,
@@ -108,9 +123,9 @@ def build_analytics(trades_rows: list[dict[str, object]], nav_rows: list[dict[st
         "max_effective_win_streak": int(max_effective_win_streak),
         "current_effective_win_streak": int(current_effective_win_streak),
         "effective_win_threshold": EFFECTIVE_WIN_THRESHOLD,
-        "average_profit": float(profits.mean()) if total_trades else 0.0,
-        "average_loss": float(losses.mean()) if len(losses) else 0.0,
-        "equity_return": float(nav_values.iloc[-1] - 1.0) if not nav_values.empty else 0.0,
+        "average_profit": _mean(profits) if total_trades else Decimal("0"),
+        "average_loss": _mean(losses) if losses else Decimal("0"),
+        "equity_return": q8(nav_values[-1] - Decimal("1")) if nav_values else Decimal("0"),
         "prev_drawdown": prev_drawdown,
         "daily_loss": daily_loss,
     }

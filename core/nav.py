@@ -1,44 +1,48 @@
 from __future__ import annotations
 
-import pandas as pd
+from decimal import Decimal
+
+from core.precision import q8
 
 
 def build_nav(equity_rows: list[dict[str, object]]) -> list[dict[str, object]]:
     if not equity_rows:
         raise ValueError("equity dataframe is empty")
 
-    df = pd.DataFrame(equity_rows).copy()
-    if "equity" not in df.columns:
+    if "equity" not in equity_rows[0]:
         raise ValueError("equity column is required")
 
-    for col in ["equity", "deposit", "withdraw"]:
-        if col not in df.columns:
-            df[col] = 0.0
-        df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0.0)
-
-    initial_equity = float(df["equity"].iloc[0])
+    rows = sorted(equity_rows, key=lambda row: row.get("date"))
+    initial_equity = q8(rows[0].get("equity", 0))
     if initial_equity <= 0:
         raise ValueError("initial equity must be > 0 to compute nav")
 
-    nav_values: list[float] = []
-    shares_values: list[float] = []
-    nav = 1.0
+    nav = Decimal("1")
     shares = initial_equity
+    peak = nav
+    result: list[dict[str, object]] = []
 
-    for index, row in df.iterrows():
-        equity = float(row["equity"])
+    for index, row in enumerate(rows):
+        equity = q8(row.get("equity", 0))
         if index > 0:
-            cashflow = float(row["deposit"]) - float(row["withdraw"])
-            if cashflow != 0.0:
+            deposit = q8(row.get("deposit", 0))
+            withdraw = q8(row.get("withdraw", 0))
+            cashflow = q8(deposit - withdraw)
+            if cashflow != 0:
                 if nav <= 0:
                     raise ValueError("nav must be > 0 when applying cashflow")
-                shares += cashflow / nav
-        nav = equity / shares if shares > 0 else 0.0
-        nav_values.append(nav)
-        shares_values.append(shares)
+                shares = q8(shares + (cashflow / nav))
 
-    df["nav"] = nav_values
-    df["peak"] = pd.Series(nav_values).cummax().values
-    df["drawdown"] = ((df["peak"] - df["nav"]) / df["peak"]).fillna(0.0)
+        nav = q8(equity / shares) if shares > 0 else Decimal("0")
+        peak = nav if nav > peak else peak
+        drawdown = q8((peak - nav) / peak) if peak > 0 else Decimal("0")
 
-    return df[["date", "equity", "nav", "peak", "drawdown"]].to_dict(orient="records")
+        result.append({
+            "date": row.get("date"),
+            "equity": equity,
+            "nav": nav,
+            "peak": peak,
+            "drawdown": drawdown,
+        })
+
+    return result
