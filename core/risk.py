@@ -17,6 +17,13 @@ RISK_BY_LEVEL = {
     4: Decimal("0"),
 }
 
+DRAWDOWN_THRESHOLDS = {
+    1: Decimal("0.03"),
+    2: Decimal("0.05"),
+    3: Decimal("0.08"),
+    4: Decimal("0.12"),
+}
+
 
 def load_risk_state(path: Path) -> dict[str, Any]:
     if not path.exists():
@@ -72,27 +79,12 @@ def _parse_date(value: str | None) -> date | None:
             return None
 
 
-def _trigger_level_from_drawdown(drawdown: Decimal) -> int:
-    if drawdown >= Decimal("0.10"):
-        return 4
-    if drawdown >= Decimal("0.08"):
-        return 3
-    if drawdown >= Decimal("0.05"):
-        return 2
-    if drawdown >= Decimal("0.03"):
-        return 1
-    return 0
-
-
-def _trigger_level_from_loss_streak(loss_streak: int) -> int:
-    if loss_streak >= 7:
-        return 4
-    if loss_streak >= 5:
-        return 3
-    if loss_streak >= 3:
-        return 2
-    if loss_streak >= 2:
-        return 1
+def level_from_drawdown(drawdown: Decimal) -> int:
+    if drawdown <= Decimal("0"):
+        return 0
+    for level in sorted(DRAWDOWN_THRESHOLDS.keys(), reverse=True):
+        if drawdown >= DRAWDOWN_THRESHOLDS[level]:
+            return level
     return 0
 
 
@@ -103,15 +95,8 @@ def evaluate_risk(
 ) -> dict[str, Any]:
     actions: list[str] = []
     current_drawdown = q8(metrics.get("current_drawdown", "0"))
-    current_loss_streak = int(metrics.get("current_loss_streak", 0))
-    current_effective_win_streak = int(metrics.get("current_effective_win_streak", 0))
-    effective_win_threshold = q8(metrics.get("effective_win_threshold", "0.01"))
     current_date = _parse_date(as_of_date)
-
-    trigger_level = max(
-        _trigger_level_from_drawdown(current_drawdown),
-        _trigger_level_from_loss_streak(current_loss_streak),
-    )
+    trigger_level = level_from_drawdown(current_drawdown)
 
     prev_level = int((state or {}).get("level", 0))
     prev_level = max(0, min(4, prev_level))
@@ -159,37 +144,20 @@ def evaluate_risk(
         level = 0
         actions.append("创新高，风险等级恢复为Level 0")
     elif not just_released_from_stop:
-        recovery_steps = 0
-        if current_effective_win_streak >= 2:
-            recovery_steps += 1
-            percent = q8(effective_win_threshold * Decimal("100")).quantize(Decimal("1"))
-            actions.append(f"连续2次有效盈利(>={percent}%)，风险等级降一级")
         if last_drawdown > 0 and current_drawdown <= q8(last_drawdown * Decimal("0.5")):
-            recovery_steps += 1
+            recovered = max(trigger_level, level - 1)
             actions.append("回撤较上次恢复50%，风险等级降一级")
-
-        if recovery_steps > 0:
-            recovered = max(trigger_level, level - recovery_steps)
             if recovered < level:
                 actions.append(f"风险等级从Level {level} 调整为Level {recovered}")
             level = recovered
 
-    if current_loss_streak >= 7:
-        actions.append("连亏7次，触发Level 4")
-    elif current_loss_streak >= 5:
-        actions.append("连亏5次，触发Level 3")
-    elif current_loss_streak >= 3:
-        actions.append("连亏3次，触发Level 2")
-    elif current_loss_streak >= 2:
-        actions.append("连亏2次，触发Level 1")
-
-    if current_drawdown >= Decimal("0.10"):
-        actions.append("回撤达到10%，触发Level 4")
-    elif current_drawdown >= Decimal("0.08"):
+    if current_drawdown >= DRAWDOWN_THRESHOLDS[4]:
+        actions.append("回撤达到12%，触发Level 4")
+    elif current_drawdown >= DRAWDOWN_THRESHOLDS[3]:
         actions.append("回撤达到8%，触发Level 3")
-    elif current_drawdown >= Decimal("0.05"):
+    elif current_drawdown >= DRAWDOWN_THRESHOLDS[2]:
         actions.append("回撤达到5%，触发Level 2")
-    elif current_drawdown >= Decimal("0.03"):
+    elif current_drawdown >= DRAWDOWN_THRESHOLDS[1]:
         actions.append("回撤达到3%，触发Level 1")
 
     return {

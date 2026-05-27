@@ -9,7 +9,7 @@ from core.analytics import build_analytics
 from core.equity import recalculate_equity
 from core.nav import build_nav
 from core.precision import q8
-from core.risk import evaluate_risk
+from core.risk import DRAWDOWN_THRESHOLDS, RISK_BY_LEVEL, evaluate_risk, level_from_drawdown
 
 
 def test_recalculate_equity_and_build_nav() -> None:
@@ -122,36 +122,30 @@ def test_effective_win_streak_uses_return_threshold_strict_mode() -> None:
 
 def test_risk_level_uses_highest_trigger() -> None:
     metrics = {
-        "current_loss_streak": 2,
         "current_drawdown": 0.06,
         "current_win_streak": 0,
     }
     risk = evaluate_risk(metrics, {"level": 0, "last_drawdown": 0.06})
 
-    assert risk["level"] == 2
-    assert float(risk["current_risk"]) == pytest.approx(0.01)
+    expected_level = level_from_drawdown(q8("0.06"))
+    assert risk["level"] == expected_level
+    assert float(risk["current_risk"]) == pytest.approx(float(RISK_BY_LEVEL[expected_level]))
     assert risk["status"] == "active"
 
 
 def test_risk_recovery_downgrades_one_or_more_levels() -> None:
     metrics = {
-        "current_loss_streak": 0,
         "current_drawdown": 0.04,
-        "current_effective_win_streak": 2,
-        "effective_win_threshold": 0.01,
     }
     risk = evaluate_risk(metrics, {"level": 3, "last_drawdown": 0.10})
 
-    assert risk["level"] == 1
-    assert float(risk["current_risk"]) == pytest.approx(0.015)
+    assert risk["level"] == 2
+    assert float(risk["current_risk"]) == pytest.approx(float(RISK_BY_LEVEL[risk["level"]]))
 
 
 def test_risk_recovery_new_high_resets_to_level_zero() -> None:
     metrics = {
-        "current_loss_streak": 0,
         "current_drawdown": 0.0,
-        "current_effective_win_streak": 0,
-        "effective_win_threshold": 0.01,
     }
     risk = evaluate_risk(metrics, {"level": 3, "last_drawdown": 0.06})
 
@@ -161,10 +155,7 @@ def test_risk_recovery_new_high_resets_to_level_zero() -> None:
 
 def test_risk_level_four_stops_trading() -> None:
     metrics = {
-        "current_loss_streak": 7,
-        "current_drawdown": 0.02,
-        "current_effective_win_streak": 0,
-        "effective_win_threshold": 0.01,
+        "current_drawdown": float(DRAWDOWN_THRESHOLDS[4]),
     }
     risk = evaluate_risk(metrics, {"level": 0, "last_drawdown": 0.02}, as_of_date="2026-04-21")
 
@@ -175,20 +166,14 @@ def test_risk_level_four_stops_trading() -> None:
 
 def test_level4_stops_for_two_days_then_back_to_level2() -> None:
     trigger_metrics = {
-        "current_loss_streak": 7,
-        "current_drawdown": 0.02,
-        "current_effective_win_streak": 0,
-        "effective_win_threshold": 0.01,
+        "current_drawdown": float(DRAWDOWN_THRESHOLDS[4]),
     }
     day0 = evaluate_risk(trigger_metrics, {"level": 0, "last_drawdown": 0.02}, as_of_date="2026-04-21")
     assert day0["level"] == 4
     assert day0["status"] == "stopped"
 
     mild_metrics = {
-        "current_loss_streak": 0,
         "current_drawdown": 0.01,
-        "current_effective_win_streak": 0,
-        "effective_win_threshold": 0.01,
     }
     day1 = evaluate_risk(mild_metrics, day0["state"], as_of_date="2026-04-22")
     assert day1["level"] == 4
