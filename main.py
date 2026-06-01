@@ -67,7 +67,11 @@ def main() -> None:
     print(f"胜率: {_format_percent(metrics['win_rate'])}")
     print(f"盈亏比: {_format_ratio(metrics['payoff_ratio'])}")
     print(f"Profit Factor: {metrics['profit_factor']:.3f}")
-    print(f"期望值: {metrics['expectancy']:.3f}")
+    print(
+        "期望值: "
+        f"{metrics['expectancy']:.3f} "
+        f"(95% CI: [{metrics['expectancy_ci_low']:.3f}, {metrics['expectancy_ci_high']:.3f}])"
+    )
     print(f"Sharpe Ratio: {metrics['sharpe_ratio']:.3f}")
     print(f"最大回撤: {_format_percent(metrics['max_drawdown'])}")
     print(f"当前回撤: {_format_percent(metrics['current_drawdown'])}")

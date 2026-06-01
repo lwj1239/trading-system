@@ -65,6 +65,18 @@ def build_analytics(trades_rows: list[dict[str, object]], nav_rows: list[dict[st
         variance = sum((value - mean) ** 2 for value in values) / Decimal(len(values))
         return q8(variance.sqrt()) if variance > 0 else Decimal("0")
 
+    def _mean_ci_95(values: list[Decimal]) -> tuple[Decimal, Decimal]:
+        if not values:
+            return (Decimal("0"), Decimal("0"))
+        mean = _mean(values)
+        std = _std(values)
+        if std == 0:
+            return (mean, mean)
+        z_score = Decimal("1.96")
+        standard_error = std / Decimal(len(values)).sqrt()
+        margin = q8(z_score * standard_error)
+        return (q8(mean - margin), q8(mean + margin))
+
     win_rate = q8(Decimal(len(wins)) / Decimal(total_trades)) if total_trades else Decimal("0")
     avg_win = _mean(wins)
     avg_loss = q8(abs(_mean(losses)))
@@ -75,6 +87,7 @@ def build_analytics(trades_rows: list[dict[str, object]], nav_rows: list[dict[st
     profit_factor = q8(total_profit / total_loss_abs) if total_loss_abs > 0 else Decimal("Infinity")
 
     expectancy = _mean(profits) if total_trades else Decimal("0")
+    expectancy_ci_low, expectancy_ci_high = _mean_ci_95(profits) if total_trades else (Decimal("0"), Decimal("0"))
 
     nav_values = [q8(row.get("nav", 0)) for row in nav_rows]
     returns: list[Decimal] = []
@@ -113,6 +126,8 @@ def build_analytics(trades_rows: list[dict[str, object]], nav_rows: list[dict[st
         "payoff_ratio": payoff_ratio,
         "profit_factor": profit_factor,
         "expectancy": expectancy,
+        "expectancy_ci_low": expectancy_ci_low,
+        "expectancy_ci_high": expectancy_ci_high,
         "sharpe_ratio": sharpe_ratio,
         "max_drawdown": max_drawdown,
         "current_drawdown": current_drawdown,
