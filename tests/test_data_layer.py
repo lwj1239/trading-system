@@ -24,8 +24,8 @@ def test_load_trades_parses_sorts_and_coerces_numeric(tmp_path: Path) -> None:
         trades_path,
         TRADE_COLUMNS,
         [
-            ["2024-01-03", "BTCUSDT", "long", "42000", "42500", "0.5", "200", "0.02", "breakout", "ok"],
-            ["2024-01-01", "ETHUSDT", "short", "bad", "2400", "1.2", "120", "0.01", "mean", "ok"],
+            ["2024-01-03", "BTCUSDT", "long", "42000", "42500", "", "0.5", "200", "0.02", "breakout", "ok"],
+            ["2024-01-01", "ETHUSDT", "short", "bad", "2400", "", "1.2", "120", "0.01", "mean", "ok"],
         ],
     )
 
@@ -42,7 +42,7 @@ def test_load_trades_invalid_date_raises(tmp_path: Path) -> None:
     _write_csv(
         trades_path,
         TRADE_COLUMNS,
-        [["2024/01/01", "BTCUSDT", "long", "1", "2", "1", "1", "0.01", "x", "x"]],
+        [["2024/01/01", "BTCUSDT", "long", "1", "2", "", "1", "1", "0.01", "x", "x"]],
     )
 
     with pytest.raises(ValueError, match="contains invalid dates"):

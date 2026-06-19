@@ -4,7 +4,7 @@ import math
 from decimal import Decimal
 from pathlib import Path
 
-from core.analytics import build_analytics
+from core.analytics import build_analytics, build_r_analytics
 from core.data import EQUITY_COLUMNS, NAV_COLUMNS, ensure_demo_data, load_equity, load_trades, save_rows
 from core.equity import recalculate_equity
 from core.nav import build_nav
@@ -38,6 +38,45 @@ def _format_as_of_date(equity_rows: list[dict[str, object]]) -> str | None:
         return value.strftime("%Y-%m-%d")
     text = str(value)
     return text[:10] if text else None
+
+
+def _print_r_report(result: dict[str, object]) -> None:
+    print("=" * 60)
+    print("R-Multiple 策略分析")
+    print("=" * 60)
+    print(f"统计笔数: {result['total_trades']}")
+
+    if result["total_trades"] == 0:
+        print("无有效 R 数据（需要 stop_price 和 exit）")
+        return
+
+    ci_low, ci_high = result["r_ci_95"]
+    payoff = result["payoff_ratio"]
+    payoff_text = "INF" if payoff == Decimal("Infinity") else f"{payoff:.3f}"
+    pf = result["profit_factor"]
+    pf_text = "INF" if pf == Decimal("Infinity") else f"{pf:.3f}"
+
+    print(f"胜率: {_format_percent(result['win_rate'])}")
+    print(f"平均 R: {result['avg_r']:.3f}")
+    print(f"95% CI: [{ci_low:.3f}, {ci_high:.3f}]")
+    print(f"平均盈利 R: {result['avg_win_r']:.3f}")
+    print(f"平均亏损 R: {result['avg_loss_r']:.3f}")
+    print(f"盈亏比: {payoff_text}")
+    print(f"盈利因子: {pf_text}")
+    print(f"最大连续亏损: {result['max_consecutive_loss']} 次")
+    print(f"最大回撤 (R): {result['max_drawdown_r']:.3f}R")
+
+
+def cmd_r() -> None:
+    project_dir = Path(__file__).resolve().parent
+    data_dir = project_dir / "data"
+    trades_path = data_dir / "trades.csv"
+    if not trades_path.exists():
+        print("trades.csv 不存在")
+        return
+    trades_rows = load_trades(trades_path)
+    result = build_r_analytics(trades_rows)
+    _print_r_report(result)
 
 
 def main() -> None:
@@ -88,4 +127,8 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    import sys
+    if len(sys.argv) > 1 and sys.argv[1] == "r":
+        cmd_r()
+    else:
+        main()

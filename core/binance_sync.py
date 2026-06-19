@@ -105,6 +105,14 @@ def summarize_binance_cashflow(binance_csv_path: Path, target_date: date) -> Dai
     return _summarize_daily_df(daily, target_date)
 
 
+def get_earliest_binance_date(binance_csv_path: Path) -> date:
+    df = _load_binance_df(binance_csv_path)
+    earliest = df["时间"].dt.date.min()
+    if pd.isna(earliest):
+        raise ValueError(f"{binance_csv_path.name} 中没有可用的流水日期")
+    return earliest
+
+
 def update_yesterday_equity(
     equity_csv_path: Path,
     binance_csv_path: Path,
@@ -245,3 +253,17 @@ def rebuild_equity_from_date(
         "last_date": last["date"].strftime("%Y-%m-%d") if last else "",
         "last_equity": _fmt_decimal(last["equity"]) if last else "0",
     }
+
+
+def rebuild_equity_from_earliest_binance_date(
+    equity_csv_path: Path,
+    binance_csv_path: Path,
+    end_date: date | None = None,
+) -> dict[str, str | int]:
+    start_date = get_earliest_binance_date(binance_csv_path)
+    return rebuild_equity_from_date(
+        equity_csv_path=equity_csv_path,
+        binance_csv_path=binance_csv_path,
+        start_date=start_date,
+        end_date=end_date or date.today(),
+    )

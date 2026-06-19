@@ -5,7 +5,7 @@ from decimal import Decimal
 import numpy as np
 import pytest
 
-from core.analytics import build_analytics
+from core.analytics import build_analytics, build_r_analytics
 from core.equity import recalculate_equity
 from core.nav import build_nav
 from core.precision import q8
@@ -183,3 +183,54 @@ def test_level4_stops_for_two_days_then_back_to_level2() -> None:
     assert day2["level"] == 2
     assert float(day2["current_risk"]) == pytest.approx(0.01)
     assert day2["status"] == "active"
+
+
+def test_build_r_analytics() -> None:
+    from datetime import datetime
+
+    trades_rows = [
+        # 有 stop_price: long, entry=100, exit=110, stop=95, size=1 → risk=5, profit=10, R=2.0
+        {"date": datetime(2024, 1, 1), "symbol": "A", "side": "long",
+         "entry": 100, "exit": 110, "stop_price": 95, "size": 1, "profit": 10, "setup": "x"},
+        # long, entry=100, exit=96, stop=95, size=1 → risk=5, profit=-4, R=-0.8
+        {"date": datetime(2024, 1, 2), "symbol": "B", "side": "long",
+         "entry": 100, "exit": 96, "stop_price": 95, "size": 1, "profit": -4, "setup": "x"},
+        # long, entry=100, exit=97, stop=95, size=2 → risk=10, profit=-6, R=-0.6
+        {"date": datetime(2024, 1, 3), "symbol": "C", "side": "long",
+         "entry": 100, "exit": 97, "stop_price": 95, "size": 2, "profit": -6, "setup": "y"},
+        # 无 stop_price，应被跳过
+        {"date": datetime(2024, 1, 4), "symbol": "D", "side": "long",
+         "entry": 100, "exit": 105, "stop_price": 0, "size": 1, "profit": 5, "setup": "z"},
+        # 无 exit，应被跳过
+        {"date": datetime(2024, 1, 5), "symbol": "E", "side": "long",
+         "entry": 100, "exit": 0, "stop_price": 95, "size": 1, "profit": 0, "setup": "z"},
+    ]
+
+    result = build_r_analytics(trades_rows)
+
+    assert result["total_trades"] == 3
+    r_vals = [rec["r"] for rec in result["records"]]
+    assert r_vals == [Decimal("2.00000000"), Decimal("-0.80000000"), Decimal("-0.60000000")]
+
+    # 胜率 1/3
+    assert float(result["win_rate"]) == pytest.approx(1 / 3)
+    # 平均 R = (2 - 0.8 - 0.6) / 3 = 0.2
+    assert float(result["avg_r"]) == pytest.approx(0.2)
+    # 平均盈利 R = 2.0
+    assert float(result["avg_win_r"]) == pytest.approx(2.0)
+    # 平均亏损 R = abs((-0.8 + -0.6) / 2) = 0.7
+    assert float(result["avg_loss_r"]) == pytest.approx(0.7)
+    # 盈亏比 = 2.0 / 0.7
+    assert float(result["payoff_ratio"]) == pytest.approx(2.0 / 0.7)
+    # 盈利因子 = 2.0 / 1.4
+    assert float(result["profit_factor"]) == pytest.approx(2.0 / 1.4)
+    # 最大连续亏损 = 2
+    assert result["max_consecutive_loss"] == 2
+    # 最大回撤: 累计 [2.0, 1.2, 0.6], peak=2, dd=-1.4
+    assert float(result["max_drawdown_r"]) == pytest.approx(-1.4)
+
+
+def test_build_r_analytics_empty() -> None:
+    result = build_r_analytics([])
+    assert result["total_trades"] == 0
+    assert result["records"] == []

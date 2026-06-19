@@ -6,7 +6,11 @@ from pathlib import Path
 
 import pytest
 
-from core.binance_sync import summarize_binance_cashflow, update_yesterday_equity
+from core.binance_sync import (
+    rebuild_equity_from_earliest_binance_date,
+    summarize_binance_cashflow,
+    update_yesterday_equity,
+)
 
 
 def _write_csv(path: Path, columns: list[str], rows: list[list[object]]) -> None:
@@ -132,3 +136,44 @@ def test_update_yesterday_equity_idempotent_deposit_withdraw(tmp_path: Path) -> 
     assert result_first["deposit"] == result_second["deposit"]
     assert result_first["withdraw"] == result_second["withdraw"]
     assert result_first["equity"] == result_second["equity"]
+
+
+def test_rebuild_equity_from_earliest_binance_date(tmp_path: Path) -> None:
+    equity_path = tmp_path / "equity.csv"
+    _write_csv(
+        equity_path,
+        ["date", "equity", "profit", "funding_fee", "trading_fee", "deposit", "withdraw", "note"],
+        [
+            ["2026-04-30", "100", "0", "0", "0", "0", "0", "base"],
+        ],
+    )
+
+    binance_path = tmp_path / "Binance-合约交易流水-test.csv"
+    _write_csv(
+        binance_path,
+        ["时间", "类型", "金额", "资产", "代币名称/币种名称/币对", "交易 ID"],
+        [
+            ["26-05-01 09:00:00", "REALIZED_PNL", "10", "USDT", "BTCUSDT", "1"],
+            ["26-05-02 09:00:00", "COMMISSION", "-1", "USDT", "BTCUSDT", "2"],
+            ["26-05-02 09:00:00", "TRANSFER", "20", "USDT", "BTCUSDT", "3"],
+        ],
+    )
+
+    result = rebuild_equity_from_earliest_binance_date(
+        equity_csv_path=equity_path,
+        binance_csv_path=binance_path,
+        end_date=date(2026, 5, 2),
+    )
+
+    assert result["start_date"] == "2026-05-01"
+    assert result["end_date"] == "2026-05-02"
+    assert result["rows_updated"] == 2
+    assert result["last_date"] == "2026-05-02"
+
+    with equity_path.open("r", encoding="utf-8") as file:
+        rows = list(csv.DictReader(file))
+
+    row_0501 = next(r for r in rows if r["date"] == "2026-05-01")
+    row_0502 = next(r for r in rows if r["date"] == "2026-05-02")
+    assert row_0501["equity"] == "110.00000000"
+    assert row_0502["equity"] == "129.00000000"

@@ -9,6 +9,125 @@ from core.precision import q8
 EFFECTIVE_WIN_THRESHOLD = Decimal("0.01")
 
 
+def build_r_analytics(trades_rows: list[dict[str, object]]) -> dict[str, object]:
+    """基于 R-multiple 的策略分析，仅统计有 stop_price 的已完成交易。"""
+    r_records: list[dict[str, object]] = []
+
+    for row in trades_rows:
+        stop_price = q8(row.get("stop_price", 0))
+        exit_price = q8(row.get("exit", 0))
+        entry = q8(row.get("entry", 0))
+        size = q8(row.get("size", 0))
+        profit = q8(row.get("profit", 0))
+
+        if stop_price == 0 or exit_price == 0 or size == 0:
+            continue
+
+        risk_dollars = q8(abs(entry - stop_price) * abs(size))
+        if risk_dollars == 0:
+            continue
+
+        r_multiple = q8(profit / risk_dollars)
+        r_records.append({
+            "date": row.get("date"),
+            "symbol": row.get("symbol", ""),
+            "setup": row.get("setup", ""),
+            "r": r_multiple,
+        })
+
+    total = len(r_records)
+    if total == 0:
+        return {
+            "records": [],
+            "total_trades": 0,
+            "win_rate": Decimal("0"),
+            "avg_r": Decimal("0"),
+            "r_ci_95": (Decimal("0"), Decimal("0")),
+            "avg_win_r": Decimal("0"),
+            "avg_loss_r": Decimal("0"),
+            "payoff_ratio": Decimal("0"),
+            "profit_factor": Decimal("0"),
+            "max_consecutive_loss": 0,
+            "max_drawdown_r": Decimal("0"),
+        }
+
+    r_values = [rec["r"] for rec in r_records]  # type: ignore[union-attr]
+    wins = [r for r in r_values if r > 0]
+    losses = [r for r in r_values if r < 0]
+
+    win_rate = q8(Decimal(len(wins)) / Decimal(total))
+
+    def _mean(vals: list[Decimal]) -> Decimal:
+        if not vals:
+            return Decimal("0")
+        return q8(sum(vals, Decimal("0")) / Decimal(len(vals)))
+
+    def _std(vals: list[Decimal]) -> Decimal:
+        if not vals:
+            return Decimal("0")
+        m = sum(vals, Decimal("0")) / Decimal(len(vals))
+        var = sum((v - m) ** 2 for v in vals) / Decimal(len(vals))
+        return q8(var.sqrt()) if var > 0 else Decimal("0")
+
+    def _ci_95(vals: list[Decimal]) -> tuple[Decimal, Decimal]:
+        if not vals:
+            return (Decimal("0"), Decimal("0"))
+        m = _mean(vals)
+        s = _std(vals)
+        if s == 0:
+            return (m, m)
+        se = s / Decimal(len(vals)).sqrt()
+        margin = q8(Decimal("1.96") * se)
+        return (q8(m - margin), q8(m + margin))
+
+    avg_r = _mean(r_values)
+    ci_low, ci_high = _ci_95(r_values)
+    avg_win_r = _mean(wins)
+    avg_loss_r = abs(_mean(losses))
+
+    payoff = q8(avg_win_r / avg_loss_r) if avg_loss_r > 0 else Decimal("Infinity")
+
+    total_win_r = sum(wins, Decimal("0"))
+    total_loss_r = abs(sum(losses, Decimal("0")))
+    profit_factor = q8(total_win_r / total_loss_r) if total_loss_r > 0 else Decimal("Infinity")
+
+    # 最大连续亏损
+    max_consec_loss = 0
+    current_streak = 0
+    for r in r_values:
+        if r < 0:
+            current_streak += 1
+            max_consec_loss = max(max_consec_loss, current_streak)
+        else:
+            current_streak = 0
+
+    # R 累计曲线最大回撤（负数表示从峰值下跌了多少 R）
+    cumulative = Decimal("0")
+    peak = Decimal("0")
+    max_dd = Decimal("0")
+    for r in r_values:
+        cumulative += r
+        if cumulative > peak:
+            peak = cumulative
+        dd = cumulative - peak  # 负数
+        if dd < max_dd:
+            max_dd = dd
+
+    return {
+        "records": r_records,
+        "total_trades": total,
+        "win_rate": win_rate,
+        "avg_r": avg_r,
+        "r_ci_95": (ci_low, ci_high),
+        "avg_win_r": avg_win_r,
+        "avg_loss_r": avg_loss_r,
+        "payoff_ratio": payoff,
+        "profit_factor": profit_factor,
+        "max_consecutive_loss": max_consec_loss,
+        "max_drawdown_r": max_dd,
+    }
+
+
 def _max_streak(mask: list[bool]) -> int:
     max_count = 0
     current = 0

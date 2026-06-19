@@ -14,6 +14,7 @@ TRADE_COLUMNS = [
     "side",
     "entry",
     "exit",
+    "stop_price",
     "size",
     "profit",
     "risk",
@@ -52,12 +53,12 @@ def ensure_demo_data(data_dir: Path) -> tuple[Path, Path]:
 
     if not trades_path.exists():
         demo_trades = [
-            ["2024-01-01", "BTCUSDT", "long", 42000, 42500, 0.50, 200, 0.020, "breakout", "good trade"],
-            ["2024-01-03", "ETHUSDT", "short", 2450, 2400, 1.20, 120, 0.015, "mean_reversion", "clean setup"],
-            ["2024-01-04", "BTCUSDT", "long", 43000, 42600, 0.35, -140, 0.020, "breakout", "invalidated"],
-            ["2024-01-06", "SOLUSDT", "long", 95, 102, 30.0, 210, 0.018, "trend_follow", "momentum"],
-            ["2024-01-08", "ETHUSDT", "short", 2510, 2575, 0.80, -90, 0.020, "news", "slippage"],
-            ["2024-01-10", "BTCUSDT", "short", 43800, 43150, 0.45, 190, 0.015, "pullback", "discipline"],
+            ["2024-01-01", "BTCUSDT", "long", 42000, 42500, "", 0.50, 200, 0.020, "breakout", "good trade"],
+            ["2024-01-03", "ETHUSDT", "short", 2450, 2400, "", 1.20, 120, 0.015, "mean_reversion", "clean setup"],
+            ["2024-01-04", "BTCUSDT", "long", 43000, 42600, "", 0.35, -140, 0.020, "breakout", "invalidated"],
+            ["2024-01-06", "SOLUSDT", "long", 95, 102, "", 30.0, 210, 0.018, "trend_follow", "momentum"],
+            ["2024-01-08", "ETHUSDT", "short", 2510, 2575, "", 0.80, -90, 0.020, "news", "slippage"],
+            ["2024-01-10", "BTCUSDT", "short", 43800, 43150, "", 0.45, 190, 0.015, "pullback", "discipline"],
         ]
         _write_rows(trades_path, TRADE_COLUMNS, demo_trades)
 
@@ -102,7 +103,7 @@ def load_trades(path: Path) -> list[dict[str, object]]:
                 "setup": raw.get("setup", ""),
                 "notes": raw.get("notes", ""),
             }
-            for col in ["entry", "exit", "size", "profit", "risk"]:
+            for col in ["entry", "exit", "stop_price", "size", "profit", "risk"]:
                 row[col] = _coerce_decimal(raw.get(col, ""))
             rows.append(row)
 

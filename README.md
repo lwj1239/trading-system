@@ -107,6 +107,18 @@ uv run python daily_equity_update.py --date 2026-05-16 --rebuild-from 2026-05-01
 python daily_equity_update.py --date 2026-05-16 --rebuild-from 2026-05-01
 ```
 
+自动从最早流水日期一直回填到今天：
+
+```bash
+uv run python daily_equity_update.py --backfill-to-today
+```
+
+没有 uv 的等价方式：
+
+```bash
+python daily_equity_update.py --backfill-to-today
+```
+
 指定流水文件（示例）：
 
 ```bash
